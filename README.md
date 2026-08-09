@@ -27,6 +27,30 @@ To download fresh development builds for Android, Windows and Mac, [go to the /d
 
 For game compatibility, see [community compatibility feedback](https://report.ppsspp.org/games).
 
+Dynamic Memory Stick Size Detection
+-----------------------------------
+This build includes dynamic detection of the actual storage size for the Memory Stick emulation. This replaces the fixed size setting (default 16GB) with an "Auto" (Dynamic) mode that detects the total capacity of the storage device where the Memory Stick directory is located.
+
+### User Review Required
+> [!IMPORTANT]
+> Some older PSP games might not expect very large Memory Stick sizes (e.g. > 32GB) and could potentially exhibit issues like showing "Disk Full" incorrectly or failing to format. If such issues occur, users can still manually override the size in the System settings.
+
+### Proposed Changes
+
+#### Common Utilities
+- **DiskFree.h / DiskFree.cpp**: Added `total_disk_space` implementation for Windows, POSIX (statvfs), and Android Content URIs.
+- **AndroidStorage.h / AndroidStorage.cpp**: Added `Android_GetTotalSpaceByContentUri` to bridge to Java.
+
+#### Android Platform
+- **ContentUri.java**: Added SAF method to query total storage capacity, with support for converting Tree URIs to Document URIs.
+
+#### Core Logic and Config
+- **Config.cpp**: Changed default `MemStickSize` to `0` (Dynamic).
+- **MemoryStick.cpp**: Updated `MemoryStick_TotalSize()` to use dynamic detection with safety checks and a 16GB fallback.
+
+#### UI
+- **GameSettingsScreen.cpp**: Updated the Memory Stick size slider to include a "Dynamic" label for the `0` value.
+
 What's new in 1.20.4
 --------------------
 1.20.4 is an unusually big followup release, but given the new multiplayer developments, we need something to cover the longer gap to 1.21.
