@@ -381,13 +381,22 @@ public class ContentUri {
 	@SuppressWarnings("unused")
 	public static long contentUriGetFreeStorageSpaceSlow(Activity activity, Uri uri) {
 		try {
-			ParcelFileDescriptor pfd = activity.getContentResolver().openFileDescriptor(uri, "r");
+			Uri docUri = uri;
+			try {
+				String treeId = DocumentsContract.getTreeDocumentId(uri);
+				if (treeId != null) {
+					docUri = DocumentsContract.buildDocumentUriUsingTree(uri, treeId);
+				}
+			} catch (IllegalArgumentException e) {
+				// Not a tree URI, or at least not one that getTreeDocumentId likes.
+			}
+			ParcelFileDescriptor pfd = activity.getContentResolver().openFileDescriptor(docUri, "r");
 			if (pfd == null) {
-				Log.w(TAG, "Failed to get free storage space from URI: " + uri);
+				Log.w(TAG, "Failed to get free storage space from URI: " + docUri);
 				return -1;
 			}
 			StructStatVfs stats = Os.fstatvfs(pfd.getFileDescriptor());
-			long freeSpace = stats.f_bavail * stats.f_bsize;
+			long freeSpace = stats.f_bavail * stats.f_frsize;
 			pfd.close();
 			return freeSpace;
 		} catch (Exception e) {
@@ -404,6 +413,47 @@ public class ContentUri {
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
 			Uri uri = Uri.parse(str);
 			return contentUriGetFreeStorageSpaceSlow(activity, uri);
+		}
+
+		// Too early Android version
+		return -1;
+	}
+
+	@RequiresApi(Build.VERSION_CODES.M)
+	@Keep
+	@SuppressWarnings("unused")
+	public static long contentUriGetTotalStorageSpaceSlow(Activity activity, Uri uri) {
+		try {
+			Uri docUri = uri;
+			try {
+				String treeId = DocumentsContract.getTreeDocumentId(uri);
+				if (treeId != null) {
+					docUri = DocumentsContract.buildDocumentUriUsingTree(uri, treeId);
+				}
+			} catch (IllegalArgumentException e) {
+				// Not a tree URI.
+			}
+			ParcelFileDescriptor pfd = activity.getContentResolver().openFileDescriptor(docUri, "r");
+			if (pfd == null) {
+				Log.w(TAG, "Failed to get total storage space from URI: " + docUri);
+				return -1;
+			}
+			StructStatVfs stats = Os.fstatvfs(pfd.getFileDescriptor());
+			long totalSpace = stats.f_blocks * stats.f_frsize;
+			pfd.close();
+			return totalSpace;
+		} catch (Exception e) {
+			Log.e(TAG, "contentUriGetTotalStorageSpace exception: " + e);
+			return -1;
+		}
+	}
+
+	@Keep
+	@SuppressWarnings("unused")
+	public static long contentUriGetTotalStorageSpace(Activity activity, String str) {
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+			Uri uri = Uri.parse(str);
+			return contentUriGetTotalStorageSpaceSlow(activity, uri);
 		}
 
 		// Too early Android version

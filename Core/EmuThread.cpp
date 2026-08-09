@@ -46,7 +46,7 @@ static void EmuThreadFunc(GraphicsContext *graphicsContext, Application *applica
 
 	// This normally calls NativeInitGraphics()
 	if (!application->InitGraphics(graphicsContext)) {
-		_assert_msg_(false, "NativeInitGraphics failed, might as well bail");
+		ERROR_LOG(Log::G3D, "NativeInitGraphics failed, might as well bail");
 		// If this fails, which it normally shouldn't, let's bail.
 		g_emuThreadState = EmuThreadState::QUIT_REQUESTED;
 	} else {

@@ -52,6 +52,9 @@
 
 #if PPSSPP_PLATFORM(ANDROID)
 #include <sys/system_properties.h>
+#ifndef PROP_VALUE_MAX
+#define PROP_VALUE_MAX 92
+#endif
 #endif
 
 #define DIR_SEP "/"

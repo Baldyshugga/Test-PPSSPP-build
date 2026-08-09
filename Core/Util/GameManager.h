@@ -25,6 +25,7 @@
 #include <thread>
 #include <atomic>
 #include <optional>
+#include <cstdint>
 
 #include "Common/Net/HTTPClient.h"
 
@@ -90,7 +91,7 @@ public:
 
 	// Extracts the contents of an open zip archive into dest. Exposed for testing.
 	// maxTotalSize limits the total decompressed size (zip bomb protection).
-	bool ExtractZipContents(struct zip *z, const Path &dest, const ZipFileInfo &info, bool allowRoot, int64_t maxTotalSize = 0x100000000ULL);
+	bool ExtractZipContents(struct zip *z, const Path &dest, const ZipFileInfo &info, bool allowRoot, int64_t maxTotalSize = 0xFFFFFFFF);
 
 private:
 	void InstallZipContents(ZipFileTask task);
@@ -100,7 +101,7 @@ private:
 
 	void InstallDone();
 
-	bool ExtractFile(struct zip *z, int file_index, const Path &outFilename, int64_t *bytesCopied, int64_t allBytes, int64_t maxTotalSize = 0x100000000ULL);
+	bool ExtractFile(struct zip *z, int file_index, const Path &outFilename, int64_t *bytesCopied, int64_t allBytes, int64_t maxTotalSize = 0xFFFFFFFF);
 	bool DetectTexturePackDest(struct zip *z, int iniIndex, Path &dest);
 	void SetInstallError(std::string_view err);
 

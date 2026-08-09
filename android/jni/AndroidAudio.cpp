@@ -35,11 +35,18 @@ struct AndroidAudioState {
 	int input_sample_rate = 0;
 };
 
+#include "Common/System/System.h"
+
 AndroidAudioState *AndroidAudio_Init(AndroidAudioCallback callback, int optimalFramesPerBuffer, int optimalSampleRate) {
 	AndroidAudioState *state = new AndroidAudioState();
 	state->callback = callback;
-	state->frames_per_buffer = optimalFramesPerBuffer ? optimalFramesPerBuffer : 256;
-	state->sample_rate = optimalSampleRate ? optimalSampleRate : 44100;
+	if (System_GetPropertyBool(SYSPROP_IS_EMULATOR)) {
+		state->frames_per_buffer = 512; // Safer default for emulators
+		state->sample_rate = 44100;
+	} else {
+		state->frames_per_buffer = optimalFramesPerBuffer ? optimalFramesPerBuffer : 256;
+		state->sample_rate = optimalSampleRate ? optimalSampleRate : 44100;
+	}
 	return state;
 }
 

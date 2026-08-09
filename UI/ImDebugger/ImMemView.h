@@ -198,8 +198,6 @@ private:
 	// Symbol cache
 	std::vector<SymbolEntry> symCache_;
 	bool symsDirty_ = true;
-	int selectedSymbol_ = -1;
-	char selectedSymbolName_[128];
 
 	bool drawZeroDark_ = false;
 	bool editableMemory_ = false;

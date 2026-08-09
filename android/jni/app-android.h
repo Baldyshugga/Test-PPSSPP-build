@@ -15,6 +15,8 @@
 std::string Android_GetInputDeviceDebugString();
 std::vector<std::string> Android_GetNativeCrashHistory(int maxEntries);
 
+bool IsEmulator();
+
 #if !defined(__LIBRETRO__)
 
 #include <jni.h>

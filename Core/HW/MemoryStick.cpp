@@ -51,7 +51,6 @@ enum FreeCalcStatus {
 	CLEANED_UP,
 };
 
-static const uint64_t normalMemstickSize = 9ULL * 1024 * 1024 * 1024;
 static const uint64_t smallMemstickSize = 1ULL * 1024 * 1024 * 1024;
 
 static Promise<uint64_t> *g_initialMemstickSizePromise = nullptr;
@@ -67,7 +66,7 @@ void MemoryStick_DoState(PointerWrap &p) {
 		// Do nothing.
 	} else if (s >= 2) {
 		// Really no point in storing the memstick size.
-		u64 memStickSize = normalMemstickSize;
+		u64 memStickSize = 9ULL * 1024 * 1024 * 1024;
 		Do(p, memStickSize);
 	}
 	if (s >= 5) {
@@ -97,6 +96,28 @@ u64 MemoryStick_SectorSize() {
 	return 32 * 1024; // 32KB
 }
 
+u64 MemoryStick_TotalSize() {
+	const CompatFlags &flags = PSP_CoreParameter().compat.flags();
+	if (flags.ReportSmallMemstick)
+		return smallMemstickSize;
+
+	if (g_Config.iMemStickSizeGB > 0) {
+		return (u64)g_Config.iMemStickSizeGB * 1024 * 1024 * 1024;
+	}
+
+	// Dynamic detection.
+	int64_t totalSpace = 0;
+	if (!g_Config.memStickDirectory.empty()) {
+		if (total_disk_space(g_Config.memStickDirectory, totalSpace) && totalSpace > 0) {
+			// Round down to nearest GB to be "clean".
+			return (u64)(totalSpace / (1024 * 1024 * 1024)) * 1024 * 1024 * 1024;
+		}
+	}
+
+	// Fallback to a default if detection fails or is skipped.
+	return 16ULL * 1024 * 1024 * 1024;
+}
+
 static uint64_t ComputeSizeOfSavedataForGame(const Path &saveFolder, const std::string_view gameID) {
 	uint64_t space = 0;
 	std::vector<File::FileInfo> subDirs;
@@ -118,7 +139,7 @@ u64 MemoryStick_FreeSpace(std::string gameID) {
 	// Cap the memory stick size to avoid math errors when old games get sizes that were
 	// not planned for back then (even though 2GB cards were available.)
 	// We have a compat setting to make it even smaller for Harry Potter : Goblet of Fire, see #13266.
-	const u64 memStickSize = flags.ReportSmallMemstick ? smallMemstickSize : (u64)g_Config.iMemStickSizeGB * 1024 * 1024 * 1024;
+	const u64 memStickSize = MemoryStick_TotalSize();
 
 	// Assume the memory stick is only used to store savedata, for the current game only.
 	if (!memstickCurrentUseValid) {

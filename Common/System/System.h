@@ -243,6 +243,8 @@ enum SystemProperty {
 	SYSPROP_CAN_RESTRICT_ORIENTATION,
 
 	SYSPROP_INSTALLER_NAME,  // Useful on Android to check if we were installed from the play store.
+
+	SYSPROP_IS_EMULATOR,
 };
 
 // NOTE: Unlike requests or UIMessage, these are synchronous!

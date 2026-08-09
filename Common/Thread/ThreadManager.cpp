@@ -10,6 +10,7 @@
 #include "Common/Log.h"
 #include "Common/Thread/ThreadUtil.h"
 #include "Common/Thread/ThreadManager.h"
+#include "Common/System/System.h"
 
 // Threads and task scheduling
 //
@@ -139,7 +140,7 @@ static void WorkerThreadFunc(GlobalThreadContext *global, TaskThreadContext *thr
 	SetCurrentThreadName(thread->name);
 
 	// Should we do this on all threads?
-	if (thread->type == TaskType::IO_BLOCKING) {
+	if (thread->type == TaskType::IO_BLOCKING || System_GetPropertyBool(SYSPROP_IS_EMULATOR)) {
 		AttachThreadToJNI();
 	}
 

@@ -22,6 +22,7 @@ static jmethodID contentUriRenameFileTo;
 static jmethodID contentUriGetFileInfo;
 static jmethodID contentUriFileExists;
 static jmethodID contentUriGetFreeStorageSpace;
+static jmethodID contentUriGetTotalStorageSpace;
 static jmethodID filePathGetFreeStorageSpace;
 static jmethodID isExternalStoragePreservedLegacy;
 static jmethodID computeRecursiveDirectorySize;
@@ -34,40 +35,29 @@ void Android_StorageSetActivity(jobject nativeActivity) {
 }
 
 void Android_RegisterStorageCallbacks(JNIEnv * env, jobject obj) {
-	jclass localClass = env->FindClass("org/ppsspp/ppsspp/ContentUri");
-	_dbg_assert_(localClass);
+	jclass localClass = findClass("org/ppsspp/ppsspp/ContentUri");
+	if (!localClass) {
+		ERROR_LOG(Log::System, "Android_RegisterStorageCallbacks: Failed to find ContentUri class");
+		return;
+	}
 
 	openContentUri = env->GetStaticMethodID(localClass, "openContentUri", "(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;)I");
-	_dbg_assert_(openContentUri);
 	listContentUriDir = env->GetStaticMethodID(localClass, "listContentUriDir", "(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;");
-	_dbg_assert_(listContentUriDir);
 	contentUriCreateDirectory = env->GetStaticMethodID(localClass, "contentUriCreateDirectory", "(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;)I");
-	_dbg_assert_(contentUriCreateDirectory);
 	contentUriCreateFile = env->GetStaticMethodID(localClass, "contentUriCreateFile", "(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;)I");
-	_dbg_assert_(contentUriCreateFile);
 	contentUriCopyFile = env->GetStaticMethodID(localClass, "contentUriCopyFile", "(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;)I");
-	_dbg_assert_(contentUriCopyFile);
 	contentUriRemoveFile = env->GetStaticMethodID(localClass, "contentUriRemoveFile", "(Landroid/app/Activity;Ljava/lang/String;)I");
-	_dbg_assert_(contentUriRemoveFile);
 	contentUriMoveFile = env->GetStaticMethodID(localClass, "contentUriMoveFile", "(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I");
-	_dbg_assert_(contentUriMoveFile);
 	contentUriRenameFileTo = env->GetStaticMethodID(localClass, "contentUriRenameFileTo", "(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;)I");
-	_dbg_assert_(contentUriRenameFileTo);
 	contentUriGetFileInfo = env->GetStaticMethodID(localClass, "contentUriGetFileInfo", "(Landroid/app/Activity;Ljava/lang/String;)Ljava/lang/String;");
-	_dbg_assert_(contentUriGetFileInfo);
 	contentUriFileExists = env->GetStaticMethodID(localClass, "contentUriFileExists", "(Landroid/app/Activity;Ljava/lang/String;)Z");
-	_dbg_assert_(contentUriFileExists);
 	contentUriGetFreeStorageSpace = env->GetStaticMethodID(localClass, "contentUriGetFreeStorageSpace", "(Landroid/app/Activity;Ljava/lang/String;)J");
-	_dbg_assert_(contentUriGetFreeStorageSpace);
+	contentUriGetTotalStorageSpace = env->GetStaticMethodID(localClass, "contentUriGetTotalStorageSpace", "(Landroid/app/Activity;Ljava/lang/String;)J");
 	filePathGetFreeStorageSpace = env->GetStaticMethodID(localClass, "filePathGetFreeStorageSpace", "(Landroid/app/Activity;Ljava/lang/String;)J");
-	_dbg_assert_(filePathGetFreeStorageSpace);
 	isExternalStoragePreservedLegacy = env->GetStaticMethodID(localClass, "isExternalStoragePreservedLegacy", "()Z");  // doesn't need an activity
-	_dbg_assert_(isExternalStoragePreservedLegacy);
 	computeRecursiveDirectorySize = env->GetStaticMethodID(localClass, "computeRecursiveDirectorySize", "(Landroid/app/Activity;Ljava/lang/String;)J");
-	_dbg_assert_(computeRecursiveDirectorySize);
 
 	g_classContentUri = reinterpret_cast<jclass>(env->NewGlobalRef(localClass));
-	env->DeleteLocalRef(localClass); // cleanup local ref
 }
 
 void Android_UnregisterStorageCallbacks(JNIEnv * env) {
@@ -87,6 +77,7 @@ void Android_UnregisterStorageCallbacks(JNIEnv * env) {
 	contentUriGetFileInfo = nullptr;
 	contentUriFileExists = nullptr;
 	contentUriGetFreeStorageSpace = nullptr;
+	contentUriGetTotalStorageSpace = nullptr;
 	filePathGetFreeStorageSpace = nullptr;
 	isExternalStoragePreservedLegacy = nullptr;
 	computeRecursiveDirectorySize = nullptr;
@@ -301,13 +292,27 @@ std::vector<File::FileInfo> Android_ListContentUri(const std::string &uri, const
 }
 
 int64_t Android_GetFreeSpaceByContentUri(const std::string &uri) {
-	if (!g_nativeActivity) {
-		return false;
+	if (!g_nativeActivity || !g_classContentUri || !contentUriGetFreeStorageSpace) {
+		return -1;
 	}
 	auto env = getEnv();
 
 	jstring param = env->NewStringUTF(uri.c_str());
-	return env->CallStaticLongMethod(g_classContentUri, contentUriGetFreeStorageSpace, g_nativeActivity, param);
+	jlong result = env->CallStaticLongMethod(g_classContentUri, contentUriGetFreeStorageSpace, g_nativeActivity, param);
+	env->DeleteLocalRef(param);
+	return result;
+}
+
+int64_t Android_GetTotalSpaceByContentUri(const std::string &uri) {
+	if (!g_nativeActivity || !g_classContentUri || !contentUriGetTotalStorageSpace) {
+		return -1;
+	}
+	auto env = getEnv();
+
+	jstring param = env->NewStringUTF(uri.c_str());
+	jlong result = env->CallStaticLongMethod(g_classContentUri, contentUriGetTotalStorageSpace, g_nativeActivity, param);
+	env->DeleteLocalRef(param);
+	return result;
 }
 
 // Hm, this is never used? We use statvfs instead.

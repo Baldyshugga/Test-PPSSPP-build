@@ -170,8 +170,10 @@ std::string CreateRandMAC() {
 }
 
 static int DefaultCpuCore() {
+	bool isEmulator = System_GetPropertyBool(SYSPROP_IS_EMULATOR);
+
 #if PPSSPP_ARCH(ARM) || PPSSPP_ARCH(ARM64) || PPSSPP_ARCH(X86) || PPSSPP_ARCH(AMD64) || PPSSPP_ARCH(RISCV64) || PPSSPP_ARCH(LOONGARCH64)
-	if (System_GetPropertyBool(SYSPROP_CAN_JIT))
+	if (System_GetPropertyBool(SYSPROP_CAN_JIT) && !isEmulator)
 		return (int)CPUCore::JIT;
 	return (int)CPUCore::IR_INTERPRETER;
 #else
@@ -367,6 +369,9 @@ static const ConfigSetting generalSettings[] = {
 };
 
 static bool DefaultSasThread() {
+	if (System_GetPropertyBool(SYSPROP_IS_EMULATOR)) {
+		return false;
+	}
 	return cpu_info.num_cores > 1;
 }
 
@@ -413,6 +418,9 @@ static const ConfigSetting cpuSettings[] = {
 };
 
 static int DefaultInternalResolution() {
+	if (System_GetPropertyBool(SYSPROP_IS_EMULATOR)) {
+		return 1;
+	}
 	// Auto on Windows and Linux, 2x on large screens and iOS, 1x elsewhere.
 #if defined(USING_WIN_UI) || defined(USING_QT_UI)
 	return 0;
@@ -468,6 +476,8 @@ static int DefaultAndroidHwScale() {
 // See issue 14439. Should possibly even block these devices from selecting VK.
 const char * const vulkanDefaultBlacklist[] = {
 	"Sony:BRAVIA VH1",
+	"netease:MuMu",
+	"netease:MuMu Player",
 };
 
 static int DefaultGPUBackend() {
@@ -492,6 +502,10 @@ static int DefaultGPUBackend() {
 		if (System_GetProperty(SYSPROP_NAME) == vulkanDefaultBlacklist[i]) {
 			return (int)GPUBackend::OPENGL;
 		}
+	}
+
+	if (System_GetPropertyBool(SYSPROP_IS_EMULATOR)) {
+		return (int)GPUBackend::OPENGL;
 	}
 
 	// Default to Vulkan only on Oreo 8.1 (level 27) devices or newer, and only
@@ -1109,7 +1123,7 @@ static const ConfigSetting systemParamSettings[] = {
 #endif
 	ConfigSetting("WlanPowerSave", SETTING(g_Config, bWlanPowerSave), (bool) PSP_SYSTEMPARAM_WLAN_POWERSAVE_OFF, CfgFlag::PER_GAME),
 	ConfigSetting("EncryptSave", SETTING(g_Config, bEncryptSave), true, CfgFlag::PER_GAME | CfgFlag::REPORT),
-	ConfigSetting("MemStickSize", SETTING(g_Config, iMemStickSizeGB), 16, CfgFlag::DEFAULT),
+	ConfigSetting("MemStickSize", SETTING(g_Config, iMemStickSizeGB), 0, CfgFlag::DEFAULT),
 };
 
 static const ConfigSetting debuggerSettings[] = {

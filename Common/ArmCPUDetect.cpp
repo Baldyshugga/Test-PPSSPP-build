@@ -35,7 +35,7 @@
 #elif PPSSPP_ARCH(ARM64)
 #include "ext/cpu_features/include/cpuinfo_aarch64.h"
 
-#if defined(CPU_FEATURES_OS_LINUX) || defined(CPU_FEATURES_OS_ANDROID) || defined(CPU_FEATURES_OS_WINDOWS)
+#if defined(CPU_FEATURES_OS_LINUX) || (defined(CPU_FEATURES_OS_ANDROID) && !defined(__ANDROID__)) || defined(CPU_FEATURES_OS_WINDOWS)
 #define USE_CPU_FEATURES 1
 #endif
 #endif
@@ -48,6 +48,13 @@
 #include "Common/StringUtils.h"
 #include "Common/File/FileUtil.h"
 #include "Common/Data/Encoding/Utf8.h"
+
+#ifdef __ANDROID__
+#include <sys/system_properties.h>
+#ifndef PROP_VALUE_MAX
+#define PROP_VALUE_MAX 92
+#endif
+#endif
 
 #if PPSSPP_PLATFORM(WINDOWS) 
 #if PPSSPP_PLATFORM(UWP)
@@ -97,7 +104,7 @@ std::string GetCPUString() {
 	if (readSuccess) {
 		std::string line, marker = "Hardware\t: ";
 		while (std::getline(file, line)) {
-			if (line.find(marker) != std::string::npos) {
+			if (line.find(marker) != std::string::npos && line.length() >= marker.length()) {
 				cpu_string = line.substr(marker.length());
 			}
 		}
@@ -149,7 +156,7 @@ unsigned char GetCPUImplementer()
 
 	while (std::getline(file, line))
 	{
-		if (line.find(marker) != std::string::npos)
+		if (line.find(marker) != std::string::npos && line.length() >= marker.length())
 		{
 			line = line.substr(marker.length());
 			sscanf(line.c_str(), "0x%02hhx", &implementer);
@@ -172,7 +179,7 @@ unsigned short GetCPUPart()
 
 	while (std::getline(file, line))
 	{
-		if (line.find(marker) != std::string::npos)
+		if (line.find(marker) != std::string::npos && line.length() >= marker.length())
 		{
 			line = line.substr(marker.length());
 			sscanf(line.c_str(), "0x%03hx", &part);
@@ -238,6 +245,8 @@ int GetCoreCount()
 			++cores;
 	}
 	
+	if (cores < 1)
+		cores = 1;
 	return cores;
 }
 #endif
@@ -264,6 +273,22 @@ void CPUInfo::Detect()
 #endif
 	vendor = VENDOR_ARM;
 	logical_cpu_count = 1;
+
+	bool isEmulator = false;
+#ifdef __ANDROID__
+	char prop[PROP_VALUE_MAX];
+	__system_property_get("ro.product.model", prop);
+	if (strstr(prop, "MuMu") || strstr(prop, "Nemu") || strstr(prop, "Emulator") || strstr(prop, "google_sdk")) {
+		isEmulator = true;
+	}
+	if (__system_property_get("ro.mumu.version", prop) > 0) {
+		isEmulator = true;
+	}
+	__system_property_get("ro.board.platform", prop);
+	if (strstr(prop, "goldfish") || strstr(prop, "ranchu") || strstr(prop, "nemu")) {
+		isEmulator = true;
+	}
+#endif
 
 	// Get the information about the CPU 
 #if !PPSSPP_PLATFORM(LINUX)
@@ -347,6 +372,19 @@ void CPUInfo::Detect()
 	bASIMD = CheckCPUFeature("asimd");
 	num_cores = GetCoreCount();
 #endif
+
+	if (isEmulator) {
+		// Limit features for max stability under translation.
+		bNEON = false;
+		bVFPv3 = false;
+		bVFPv4 = false;
+		bIDIVa = false;
+		bIDIVt = false;
+		bFP = false;
+		bASIMD = false;
+		num_cores = 1;
+		logical_cpu_count = 1;
+	}
 #if PPSSPP_ARCH(ARM64)
 	// Whether the above detection failed or not, on ARM64 we do have ASIMD/NEON.
 	bNEON = true;

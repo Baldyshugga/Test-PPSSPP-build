@@ -126,9 +126,19 @@ public class PpssppActivity extends AppCompatActivity implements SensorEventList
 	private static InfraredHelper mInfraredHelper;
 	private static CameraHelper mCameraHelper;
 
-	private static final String[] permissionsForStorage = {
-		Manifest.permission.WRITE_EXTERNAL_STORAGE,
-	};
+	private static String[] getPermissionsForStorage() {
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+			return new String[] {
+				Manifest.permission.READ_MEDIA_IMAGES,
+				Manifest.permission.READ_MEDIA_VIDEO,
+				Manifest.permission.READ_MEDIA_AUDIO,
+			};
+		}
+		return new String[] {
+			Manifest.permission.WRITE_EXTERNAL_STORAGE,
+		};
+	}
+
 	private static final String[] permissionsForLocation = {
 		Manifest.permission.ACCESS_FINE_LOCATION,
 		Manifest.permission.ACCESS_COARSE_LOCATION,
@@ -233,7 +243,29 @@ public class PpssppActivity extends AppCompatActivity implements SensorEventList
 	public void sendInitialGrants() {
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
 			// Let's start out granted if it was granted already.
-			if (this.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
+			boolean granted = true;
+			for (String permission : getPermissionsForStorage()) {
+				if (this.checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
+					granted = false;
+					break;
+				}
+			}
+
+			if (!granted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+				// On Android 11+, WRITE_EXTERNAL_STORAGE is not grantable in the same way.
+				// We can check for MANAGE_EXTERNAL_STORAGE, but even if not granted,
+				// we want to allow the app to reach the menu to use SAF.
+				// However, if they HAVE granted MANAGE_EXTERNAL_STORAGE, we should definitely say yes.
+				granted = Environment.isExternalStorageManager();
+
+				// For now, on Android 11+, if we are targeting 30+, we'll consider it "granted"
+				// enough to reach the menu, unless we are in the legacy build.
+				if (getApplicationInfo().targetSdkVersion >= 30) {
+					granted = true;
+				}
+			}
+
+			if (granted) {
 				NativeApp.sendMessageFromJava("permission_granted", "storage");
 			} else {
 				NativeApp.sendMessageFromJava("permission_denied", "storage");
@@ -1056,6 +1088,8 @@ public class PpssppActivity extends AppCompatActivity implements SensorEventList
 		sizeManager.onResume();
 		updateSystemUiVisibility();
 
+		sendInitialGrants();
+
 		// OK, config should be initialized, we can query for screen rotation.
 		updateScreenRotation("onResume");
 
@@ -1694,7 +1728,24 @@ public class PpssppActivity extends AppCompatActivity implements SensorEventList
 			recreate();
 			return true;
 		} else if (command.equals("ask_permission") && params.equals("storage")) {
-			if (askForPermissions(permissionsForStorage, REQUEST_CODE_STORAGE_PERMISSION)) {
+			if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && getApplicationInfo().targetSdkVersion >= 30) {
+				// Android 11+ (API 30+) targets should ideally use MANAGE_EXTERNAL_STORAGE for "Full Access"
+				// if they aren't using SAF.
+				if (!Environment.isExternalStorageManager()) {
+					try {
+						Uri uri = Uri.parse("package:" + getPackageName());
+						Intent intent = new Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, uri);
+						startActivity(intent);
+						NativeApp.sendMessageFromJava("permission_pending", "storage");
+					} catch (Exception e) {
+						Intent intent = new Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+						startActivity(intent);
+						NativeApp.sendMessageFromJava("permission_pending", "storage");
+					}
+					return true;
+				}
+			}
+			if (askForPermissions(getPermissionsForStorage(), REQUEST_CODE_STORAGE_PERMISSION)) {
 				NativeApp.sendMessageFromJava("permission_pending", "storage");
 			} else {
 				NativeApp.sendMessageFromJava("permission_granted", "storage");

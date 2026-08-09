@@ -29,6 +29,8 @@
 #endif
 
 bool free_disk_space(const Path &path, int64_t &space) {
+	if (path.empty())
+		return false;
 #ifdef _WIN32
 	ULARGE_INTEGER free;
 #if PPSSPP_PLATFORM(UWP)
@@ -65,5 +67,33 @@ bool free_disk_space(const Path &path, int64_t &space) {
 #endif
 
 	// We can't know how much is free.
+	return false;
+}
+
+bool total_disk_space(const Path &path, int64_t &space) {
+	if (path.empty())
+		return false;
+#ifdef _WIN32
+	ULARGE_INTEGER total;
+	if (GetDiskFreeSpaceExW(path.ToWString().c_str(), nullptr, &total, nullptr)) {
+		space = total.QuadPart;
+		return true;
+	}
+#else
+	if (path.Type() == PathType::CONTENT_URI) {
+		space = Android_GetTotalSpaceByContentUri(path.ToString());
+		return space >= 0;
+	}
+
+	struct statvfs diskstat;
+	int res = statvfs(path.c_str(), &diskstat);
+
+	if (res == 0) {
+		space = (uint64_t)diskstat.f_blocks * (uint64_t)diskstat.f_frsize;
+		return true;
+	}
+#endif
+
+	// We can't know the total space.
 	return false;
 }

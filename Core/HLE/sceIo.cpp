@@ -77,9 +77,6 @@ extern "C" {
 #include "Core/HLE/Plugins.h"
 #include "Input/KeyCodes.h"
 
-// TODO: Should actually report the real free space like we do in the savedata code.
-static constexpr int FAKE_FREE_SPACE = (1024 + 512) * 1024 * 1024;
-
 /*
 
 TODO: async io is missing features!
@@ -1857,12 +1854,12 @@ static u32 sceIoDevctl(const char *name, int cmd, u32 argAddr, int argLen, u32 o
 				u32 memStickSectorSize = 32 * 1024;
 				u32 sectorCount = memStickSectorSize / sectorSize;
 				
-				u64 freeSize = FAKE_FREE_SPACE;
+				u64 totalSize = MemoryStick_TotalSize();
 
 				auto deviceSize = PSPPointer<DeviceSize>::Create(pointer);
 				if (deviceSize.IsValid()) {
-					deviceSize->maxClusters = (u32)((freeSize * 95 / 100) / (sectorSize * sectorCount));
-					deviceSize->freeClusters = deviceSize->maxClusters;
+					deviceSize->maxClusters = (u32)((totalSize * 95 / 100) / (sectorSize * sectorCount));
+					deviceSize->freeClusters = (u32)((MemoryStick_FreeSpace("") * 95 / 100) / (sectorSize * sectorCount));
 					deviceSize->maxSectors = deviceSize->maxClusters;
 					deviceSize->sectorSize = sectorSize;
 					deviceSize->sectorCount = sectorCount;
@@ -1992,12 +1989,12 @@ static u32 sceIoDevctl(const char *name, int cmd, u32 argAddr, int argLen, u32 o
 				u32 sectorSize = 0x200;
 				u32 memStickSectorSize = 32 * 1024;
 				u32 sectorCount = memStickSectorSize / sectorSize;
-				u64 freeSize = FAKE_FREE_SPACE;
+				u64 totalSize = MemoryStick_TotalSize();
 
 				auto deviceSize = PSPPointer<DeviceSize>::Create(pointer);
 				if (deviceSize.IsValid()) {
-					deviceSize->maxClusters = (u32)((freeSize  * 95 / 100) / (sectorSize * sectorCount));
-					deviceSize->freeClusters = deviceSize->maxClusters;
+					deviceSize->maxClusters = (u32)((totalSize  * 95 / 100) / (sectorSize * sectorCount));
+					deviceSize->freeClusters = (u32)((MemoryStick_FreeSpace("") * 95 / 100) / (sectorSize * sectorCount));
 					deviceSize->maxSectors = deviceSize->maxClusters;
 					deviceSize->sectorSize = sectorSize;
 					deviceSize->sectorCount = sectorCount;

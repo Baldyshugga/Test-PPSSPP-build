@@ -24,6 +24,7 @@
 #include <set>
 #include <sstream>
 #include <thread>
+#include <cstdint>
 #ifdef SHARED_LIBZIP
 #include <zip.h>
 #else
@@ -565,73 +566,37 @@ std::string GameManager::GetISOGameID(FileLoader *loader) const {
 bool GameManager::ExtractFile(struct zip *z, int file_index, const Path &outFilename, int64_t *bytesCopied, int64_t allBytes, int64_t maxTotalSize) {
 	struct zip_stat zstat;
 	zip_stat_index(z, file_index, 0, &zstat);
-	size_t size = zstat.size;
+
 	zip_file *zf = zip_fopen_index(z, file_index, 0);
-	if (!zf) {
-		ERROR_LOG(Log::HLE, "Failed to open file by index (%d) (%s)", file_index, outFilename.c_str());
+	if (!zf)
 		return false;
-	}
 
 	FILE *f = File::OpenCFile(outFilename, "wb");
-	if (f) {
-		// Don't spam the log.
-		if (file_index < 10) {
-			INFO_LOG(Log::HLE, "Writing %d bytes to '%s'", (int)size, outFilename.c_str());
-		}
-		size_t pos = 0;
-		const size_t blockSize = 1024 * 128;
-		u8 *buffer = new u8[blockSize];
-		while (pos < size) {
-			size_t readSize = std::min(blockSize, size - pos);
-			// Stop before the total would exceed the limit (zip bomb), even
-			// if the declared sizes in the archive were inaccurate.
-			if (*bytesCopied > maxTotalSize || readSize > maxTotalSize - *bytesCopied) {
-				ERROR_LOG(Log::HLE, "Bailing: zip contents too large, limit %d", (int)maxTotalSize);
-				delete[] buffer;
-				fclose(f);
-				zip_fclose(zf);
-				File::Delete(outFilename);
-				return false;
-			}
-			zip_int64_t retval = zip_fread(zf, buffer, readSize);
-			if (retval < 0 || (size_t)retval < readSize) {
-				ERROR_LOG(Log::HLE, "Failed to read %d bytes from zip (%d) - archive corrupt?", (int)readSize, (int)retval);
-				delete[] buffer;
-				fclose(f);
-				zip_fclose(zf);
-				File::Delete(outFilename);
-				return false;
-			}
-			size_t written = fwrite(buffer, 1, readSize, f);
-			if (written != readSize) {
-				ERROR_LOG(Log::HLE, "Wrote %d bytes out of %d - Disk full?", (int)written, (int)readSize);
-				delete[] buffer;
-				fclose(f);
-				zip_fclose(zf);
-				File::Delete(outFilename);
-				return false;
-			}
-			pos += readSize;
-
-			*bytesCopied += readSize;
-			installProgress_ = (float)*bytesCopied / (float)allBytes;
-		}
-
+	if (!f) {
 		zip_fclose(zf);
-		fclose(f);
-
-		// Copy the mtime, too. May not be possible on Android?
-		if (zstat.mtime) {
-			File::ChangeMTime(outFilename, zstat.mtime);
-		}
-		delete[] buffer;
-		return true;
-	} else {
-		auto iz = GetI18NCategory(I18NCat::INSTALLZIP);
-		g_OSD.Show(OSDType::MESSAGE_ERROR, iz->T("Installation failed"), outFilename.ToVisualString());
-		ERROR_LOG(Log::HLE, "Failed to open file for writing: %s", outFilename.c_str());
 		return false;
 	}
+
+	auto di = GetI18NCategory(I18NCat::DIALOG);
+
+	const size_t blockSize = 1024 * 32;
+	std::vector<u8> buffer(blockSize);
+	while (*bytesCopied < allBytes) {
+		zip_int64_t bytesRead = zip_fread(zf, buffer.data(), blockSize);
+		if (bytesRead <= 0)
+			break;
+		if (fwrite(buffer.data(), 1, bytesRead, f) != (size_t)bytesRead) {
+			fclose(f);
+			zip_fclose(zf);
+			return false;
+		}
+		*bytesCopied += bytesRead;
+		installProgress_ = allBytes > 0 ? (float)*bytesCopied / (float)allBytes : 1.0f;
+		g_OSD.SetProgressBar("install", di->T("Installing..."), 0.0f, 1.0f, 0.1f + installProgress_ * 0.9f, 0.1f);
+	}
+	fclose(f);
+	zip_fclose(zf);
+	return true;
 }
 
 // Doesn't care what it is, just extracts the whole ZIP to the requested location.
@@ -753,18 +718,18 @@ bail:
 	return false;
 }
 
-bool GameManager::InstallMemstickZip(const Path &zipfile, const Path &dest, const ZipFileInfo &info) {
-	size_t allBytes = 0;
-	size_t bytesCopied = 0;
+bool GameManager::InstallMemstickZip(const Path &zipFile, const Path &dest, const ZipFileInfo &info) {
+	int64_t allBytes = 0;
+	int64_t bytesCopied = 0;
 
 	auto sy = GetI18NCategory(I18NCat::SYSTEM);
 
 	// Not using File::Copy() so we can report progress.
-	FILE *inf = File::OpenCFile(zipfile, "rb");
+	FILE *inf = File::OpenCFile(zipFile, "rb");
 	if (!inf)
 		return false;
 
-	allBytes = (size_t)File::GetFileSize(inf);
+	allBytes = (int64_t)File::GetFileSize(inf);
 	FILE *outf = File::OpenCFile(dest, "wb");
 	if (!outf) {
 		SetInstallError(sy->T("Storage full"));
@@ -777,7 +742,7 @@ bool GameManager::InstallMemstickZip(const Path &zipfile, const Path &dest, cons
 	const size_t blockSize = 1024 * 128;
 	u8 *buffer = new u8[blockSize];
 	while (bytesCopied < allBytes) {
-		size_t readSize = std::min(blockSize, allBytes - bytesCopied);
+		size_t readSize = (size_t)std::min((int64_t)blockSize, allBytes - bytesCopied);
 		if (fread(buffer, readSize, 1, inf) != 1)
 			break;
 		if (fwrite(buffer, readSize, 1, outf) != 1)
@@ -814,10 +779,10 @@ bool GameManager::InstallZippedISO(struct zip *z, int isoFileIndex, const Path &
 	} else {
 		nameOffset++;
 	}
-	size_t allBytes = 1;
+	int64_t allBytes = 1;
 	struct zip_stat zstat;
 	if (zip_stat_index(z, isoFileIndex, 0, &zstat) >= 0) {
-		allBytes += zstat.size;
+		allBytes += (int64_t)zstat.size;
 	}
 
 	std::string name = fn.substr(nameOffset);

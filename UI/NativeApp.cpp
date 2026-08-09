@@ -432,7 +432,7 @@ static void CheckFailedGPUBackends() {
 #endif
 
 #if PPSSPP_PLATFORM(ANDROID)
-	if (System_GetPropertyInt(SYSPROP_SYSTEMVERSION) >= 30) {
+	if (System_GetPropertyInt(SYSPROP_SYSTEMVERSION) >= 30 && !IsEmulator()) {
 		// In Android 11 or later, Vulkan is as stable as OpenGL, so let's not even bother.
 		// Have also seen unexplained issues with random fallbacks to OpenGL for no good reason,
 		// especially when debugging.
@@ -511,14 +511,24 @@ void NativeInit(int argc, const char *argv[], const CommandLineOptions &cmdLineO
 
 	SetAssertCancelCallback(&AssertCancelCallback, nullptr);
 
+	bool isEmulator = System_GetPropertyBool(SYSPROP_IS_EMULATOR);
+
 	IncrementDebugCounter(DebugCounter::APP_BOOT);
 
 	// Probably an excessive timeout. it only causes delays on shutdown, though.
-	__UPnPInit(2000);
+	if (!isEmulator) {
+		__UPnPInit(2000);
+	}
 
 	ShaderTranslationInit();
 
-	g_threadManager.Init(cpu_info.num_cores, cpu_info.logical_cpu_count);
+	int numCores = cpu_info.num_cores;
+	int logicalCores = cpu_info.logical_cpu_count;
+	if (isEmulator) {
+		numCores = 1; // Force single thread on emulators for max stability
+		logicalCores = 1;
+	}
+	g_threadManager.Init(numCores, logicalCores);
 
 	g_recentFiles.EnsureThread();
 
@@ -681,7 +691,7 @@ void NativeInit(int argc, const char *argv[], const CommandLineOptions &cmdLineO
 		g_Config.currentDirectory = g_Config.defaultCurrentDirectory;
 	}
 
-	if (cache_dir && strlen(cache_dir)) {
+	if (cache_dir && strlen(cache_dir) && !isEmulator) {
 		g_Config.appCacheDirectory = Path(cache_dir);
 		DiskCachingFileLoaderCache::SetCacheDir(g_Config.appCacheDirectory);
 	}
@@ -822,7 +832,11 @@ void NativeInit(int argc, const char *argv[], const CommandLineOptions &cmdLineO
 		INFO_LOG(Log::System, "Launching EmuScreen with boot filename '%s'", boot_filename.c_str());
 		g_screenManager->switchScreen(new EmuScreen(boot_filename));
 	} else {
-		g_screenManager->switchScreen(new LogoScreen(AfterLogoScreen::DEFAULT));
+		if (System_GetPropertyBool(SYSPROP_IS_EMULATOR)) {
+			g_screenManager->switchScreen(new MainScreen());
+		} else {
+			g_screenManager->switchScreen(new LogoScreen(AfterLogoScreen::DEFAULT));
+		}
 	}
 
 	g_screenManager->SetBackgroundOverlayScreens(new BackgroundScreen(), new OSDOverlayScreen());
@@ -1008,14 +1022,14 @@ bool CreateGlobalPipelines() {
 
 	colorPipeline = g_draw->CreateGraphicsPipeline(colorDesc, "global_color");
 	if (!colorPipeline) {
-		_dbg_assert_(false);
+		ERROR_LOG(Log::G3D, "Failed to create color pipeline");
 		// Something really critical is wrong, don't care much about correct releasing of the states.
 		return false;
 	}
 
 	texColorPipeline = g_draw->CreateGraphicsPipeline(texColorDesc, "global_texcolor");
 	if (!texColorPipeline) {
-		_dbg_assert_(false);
+		ERROR_LOG(Log::G3D, "Failed to create texcolor pipeline");
 		// Something really critical is wrong, don't care much about correct releasing of the states.
 		return false;
 	}

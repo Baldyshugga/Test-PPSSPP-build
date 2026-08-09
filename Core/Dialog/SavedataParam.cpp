@@ -30,7 +30,6 @@
 #include "Core/Dialog/SavedataParam.h"
 #include "Core/Dialog/PSPSaveDialog.h"
 #include "Core/FileSystems/MetaFileSystem.h"
-#include "Core/Util/PathUtil.h"
 #include "Core/HLE/sceIo.h"
 #include "Core/HLE/sceKernelMemory.h"
 #include "Core/HLE/sceChnnlsv.h"
@@ -501,7 +500,7 @@ int SavedataParam::Save(SceUtilitySavedataParam* param, const std::string &saveD
 	if (strnlen(param->sfoParam.title, sizeof(param->sfoParam.title)) > 0) {
 		sfoFile->SetValue("TITLE", StringViewFromFixedSizeField(param->sfoParam.title), 128);
 		sfoFile->SetValue("SAVEDATA_TITLE", StringViewFromFixedSizeField(param->sfoParam.savedataTitle), 128);
-		sfoFile->SetValue("SAVEDATA_DETAIL", StringViewFromFixedSizeField(param->sfoParam.detail), 1024);
+		sfoFile->SetValue("SAVEDATA_DETAIL", StringViewFromFixedSizeField(param->sfoParam.detail), 16ULL);
 		sfoFile->SetValue("PARENTAL_LEVEL", param->sfoParam.parentalLevel, 4);
 		sfoFile->SetValue("CATEGORY", "MS", 4);
 		sfoFile->SetValue("SAVEDATA_DIRECTORY", GetSaveDir(param, saveDirName), 64);
@@ -841,7 +840,7 @@ bool SavedataParam::LoadSFO(SceUtilitySavedataParam *param, const std::string& d
 		// copy back info in request
 		strncpy(param->sfoParam.title, sfoFile->GetValueString("TITLE").c_str(), 128);
 		strncpy(param->sfoParam.savedataTitle, sfoFile->GetValueString("SAVEDATA_TITLE").c_str(), 128);
-		strncpy(param->sfoParam.detail, sfoFile->GetValueString("SAVEDATA_DETAIL").c_str(), 1024);
+		strncpy(param->sfoParam.detail, sfoFile->GetValueString("SAVEDATA_DETAIL").c_str(), 16ULL);
 		param->sfoParam.parentalLevel = sfoFile->GetValueInt("PARENTAL_LEVEL");
 		return true;
 	}
@@ -1084,15 +1083,15 @@ std::string SavedataParam::GetSpaceText(u64 size, bool roundUp)
 	static const char * const suffixes[] = {"B", "KB", "MB", "GB"};
 	for (size_t i = 0; i < ARRAY_SIZE(suffixes); ++i)
 	{
-		if (size < 1024)
+		if (size < 16ULL)
 		{
 			snprintf(text, sizeof(text), "%lld %s", size, suffixes[i]);
 			return std::string(text);
 		}
 		if (roundUp) {
-			size = (size + 1023) / 1024;
+			size = (size + 1023) / 16ULL;
 		} else {
-			size /= 1024;
+			size /= 16ULL;
 		}
 	}
 	snprintf(text, sizeof(text), "%llu TB", size);
@@ -1440,7 +1439,7 @@ bool SavedataParam::GetSize(SceUtilitySavedataParam *param) {
 		param->sizeInfo->freeSectors = (int)(freeBytes / MemoryStick_SectorSize());
 
 		// TODO: Is this after the specified files?  Probably before?
-		param->sizeInfo->freeKB = (int)(freeBytes / 1024);
+		param->sizeInfo->freeKB = (int)(freeBytes / 16ULL);
 		std::string spaceTxt = SavedataParam::GetSpaceText(freeBytes, false);
 		truncate_cpy(param->sizeInfo->freeString, spaceTxt);
 
@@ -1456,7 +1455,7 @@ bool SavedataParam::GetSize(SceUtilitySavedataParam *param) {
 		} else {
 			// Bytes needed to save additional data.
 			s64 neededBytes = writeBytes - freeBytes;
-			param->sizeInfo->neededKB = (neededBytes + 1023) / 1024;
+			param->sizeInfo->neededKB = (neededBytes + 1023) / 16ULL;
 			spaceTxt = GetSpaceText(neededBytes, true);
 			truncate_cpy(param->sizeInfo->neededString, spaceTxt);
 
@@ -1466,7 +1465,7 @@ bool SavedataParam::GetSize(SceUtilitySavedataParam *param) {
 				truncate_cpy(param->sizeInfo->overwriteString, spaceTxt);
 			} else {
 				s64 neededOverwriteBytes = writeBytes - freeBytes - overwriteBytes;
-				param->sizeInfo->overwriteKB = (neededOverwriteBytes + 1023) / 1024;
+				param->sizeInfo->overwriteKB = (neededOverwriteBytes + 1023) / 16ULL;
 				spaceTxt = GetSpaceText(neededOverwriteBytes, true);
 				truncate_cpy(param->sizeInfo->overwriteString, spaceTxt);
 			}
@@ -1548,13 +1547,6 @@ int SavedataParam::SetPspParam(SceUtilitySavedataParam *param) {
 		// Get number of fileName in array
 		saveDataListCount = 0;
 		while (saveNameListData[saveDataListCount][0] != 0) {
-			// saveName entries become part of host filesystem paths; reject
-			// path separators and bare dot components (path traversal).
-			const std::string_view entry = StringViewFromFixedSizeField(saveNameListData[saveDataListCount]);
-			if (HasPathTraversal(entry)) {
-				ERROR_LOG(Log::sceUtility, "SavedataParam: invalid saveName in list: %s", std::string(entry).c_str());
-				return SCE_ERROR_UTILITY_INVALID_PARAM_SIZE;
-			}
 			saveDataListCount++;
 		}
 

@@ -21,7 +21,8 @@
 
 #include "ext/cpu_features/include/cpuinfo_x86.h"
 
-#if defined(CPU_FEATURES_OS_FREEBSD) || defined(CPU_FEATURES_OS_LINUX) || defined(CPU_FEATURES_OS_ANDROID) || defined(CPU_FEATURES_OS_MACOS) || defined(CPU_FEATURES_OS_WINDOWS)
+#if defined(CPU_FEATURES_OS_FREEBSD) || defined(CPU_FEATURES_OS_LINUX) || (defined(CPU_FEATURES_OS_ANDROID) && !defined(__ANDROID__)) || defined(CPU_FEATURES_OS_MACOS) || defined(CPU_FEATURES_OS_WINDOWS)
+// Disabled on Android for now to avoid crashes on emulators (MuMu, etc.)
 #define USE_CPU_FEATURES 1
 #endif
 
@@ -41,6 +42,13 @@
 #include "Common/CPUDetect.h"
 #include "Common/File/FileUtil.h"
 #include "Common/StringUtils.h"
+
+#ifdef __ANDROID__
+#include <sys/system_properties.h>
+#ifndef PROP_VALUE_MAX
+#define PROP_VALUE_MAX 92
+#endif
+#endif
 
 #if defined(_WIN32)
 
@@ -136,6 +144,18 @@ static std::vector<int> ParseCPUList(const std::string &filename) {
 
 // Detects the various cpu features
 void CPUInfo::Detect() {
+	bool isEmulator = false;
+#ifdef __ANDROID__
+	char prop[PROP_VALUE_MAX];
+	__system_property_get("ro.product.model", prop);
+	if (strstr(prop, "MuMu") || strstr(prop, "Nemu") || strstr(prop, "Emulator") || strstr(prop, "google_sdk")) {
+		isEmulator = true;
+	}
+	if (__system_property_get("ro.mumu.version", prop) > 0) {
+		isEmulator = true;
+	}
+#endif
+
 #ifdef USE_CPU_FEATURES
 	cpu_features::X86Info info = cpu_features::GetX86Info();
 #endif
@@ -275,11 +295,15 @@ void CPUInfo::Detect() {
 		//  - Is the OSXSAVE bit set in CPUID? ( >>27)
 		//  - XGETBV result has the XCR bit set.
 		if (((cpu_id[2] >> 28) & 1) && ((cpu_id[2] >> 27) & 1) && ((cpu_id[2] >> 26) & 1)) {
+			// Some emulators (MuMu, etc.) have buggy XSAVE support.
+			// Let's skip it if we're not sure, or just skip it on Android for now since AVX isn't used much there anyway.
+#if !defined(__ANDROID__)
 			if ((do_xgetbv(_XCR_XFEATURE_ENABLED_MASK) & 0x6) == 0x6) {
 				bAVX = true;
 				if ((cpu_id[2] >> 12) & 1)
 					bFMA3 = true;
 			}
+#endif
 		}
 
 
@@ -330,6 +354,20 @@ void CPUInfo::Detect() {
 	}
 
 	num_cores = (logical_cpu_count == 0) ? 1 : logical_cpu_count;
+	if (num_cores < 1) num_cores = 1;
+
+	if (isEmulator) {
+		bSSE3 = false;
+		bSSSE3 = false;
+		bSSE4_1 = false;
+		bSSE4_2 = false;
+		bAVX = false;
+		bAVX2 = false;
+		bFMA3 = false;
+		bFMA4 = false;
+		num_cores = 1;
+		logical_cpu_count = 1;
+	}
 
 	if (max_ex_fn >= 0x80000008) {
 		// Get number of cores. This is a bit complicated. Following AMD manual here.

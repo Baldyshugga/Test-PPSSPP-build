@@ -22,6 +22,7 @@
 #include "Core/Config.h"
 #include "Core/KeyMap.h"
 #include "Core/System.h"
+#include "Common/System/System.h"
 
 enum VRMatrix {
 	VR_PROJECTION_MATRIX,
@@ -127,6 +128,11 @@ VR app flow integration
 */
 
 bool IsVREnabled() {
+#if PPSSPP_PLATFORM(ANDROID)
+	if (System_GetPropertyBool(SYSPROP_IS_EMULATOR)) {
+		return false;
+	}
+#endif
 	// For now, let the OPENXR build flag control enablement.
 	// This will change.
 #ifdef OPENXR

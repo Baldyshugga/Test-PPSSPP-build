@@ -318,6 +318,8 @@ static PFN_vkVoidFunction LoadDeviceFuncCore(VkDevice device, const char *name, 
 static const char * const g_deviceNameBlacklist[] = {
 	"NVIDIA:SHIELD Tablet K1",
 	"SDL:Horizon",
+	"netease:MuMu",
+	"netease:MuMu Player",
 };
 
 struct DriverBlackListEntry {
@@ -462,6 +464,13 @@ bool VulkanMayBeAvailable() {
 			g_vulkanMayBeAvailable = false;
 			return false;
 		}
+	}
+
+	if (System_GetPropertyBool(SYSPROP_IS_EMULATOR)) {
+		INFO_LOG(Log::G3D, "VulkanMayBeAvailable: Emulator detected, disabling Vulkan ('%s')", hwDeviceName.c_str());
+		g_vulkanAvailabilityChecked = true;
+		g_vulkanMayBeAvailable = false;
+		return false;
 	}
 
 	INFO_LOG(Log::G3D, "VulkanMayBeAvailable: Device allowed ('%s')", hwDeviceName.c_str());

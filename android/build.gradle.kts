@@ -88,9 +88,13 @@ android {
 	signingConfigs {
 		getByName("debug") {
 			storeFile = file("debug.keystore")
+			enableV1Signing = true
+			enableV2Signing = true
 		}
 		create("optimized") {
 			storeFile = file("debug.keystore")
+			enableV1Signing = true
+			enableV2Signing = true
 		}
 		if (project.hasProperty("RELEASE_STORE_FILE")) {
 			create("release") {
@@ -148,10 +152,12 @@ android {
 		}
 		getByName("release") {
 			isMinifyEnabled = false
+			signingConfig = signingConfigs.getByName("optimized")
 			if (project.hasProperty("RELEASE_STORE_FILE")) {
 				signingConfig = signingConfigs.getByName("release")
 			} else {
-				println("WARNING: RELEASE_STORE_FILE is missing. Release builds will be unusable.")
+				println("WARNING: RELEASE_STORE_FILE is missing. Falling back to debug signing.")
+				signingConfig = signingConfigs.getByName("debug")
 			}
 		}
 	}
@@ -204,7 +210,7 @@ android {
 				}
 			}
 			ndk {
-				abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86_64"))
+				abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64"))
 				// debugSymbolLevel = "FULL"  // These don't actually help much in the Google Play crash report. We do still have symbols locally.
 			}
 		}
@@ -224,7 +230,7 @@ android {
 				}
 			}
 			ndk {
-				abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86_64"))
+				abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64"))
 				// debugSymbolLevel = "FULL"
 			}
 		}
@@ -245,7 +251,7 @@ android {
 				}
 			}
 			ndk {
-				abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a"))
+				abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86"))
 				// debugSymbolLevel = "FULL"
 			}
 		}

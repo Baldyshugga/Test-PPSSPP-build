@@ -22,6 +22,11 @@
 #include <jni.h>
 #include <android/native_window_jni.h>
 #include <android/log.h>
+#include <sys/system_properties.h>
+
+#ifndef PROP_VALUE_MAX
+#define PROP_VALUE_MAX 92
+#endif
 
 #include "Common/Render/Text/draw_text_android.h"
 
@@ -203,14 +208,31 @@ int utimensat(int fd, const char *path, const struct timespec times[2]) {
 static void ProcessFrameCommands();
 
 JNIEnv* getEnv() {
-	JNIEnv *env;
+	if (!gJvm) {
+		return nullptr;
+	}
+	JNIEnv *env = nullptr;
 	int status = gJvm->GetEnv((void**)&env, JNI_VERSION_1_6);
-	_assert_msg_(status >= 0, "'%s': Can only call getEnv if you've attached the thread already!", GetCurrentThreadName());
+	if (status < 0) {
+		JavaVMAttachArgs args{};
+		args.version = JNI_VERSION_1_6;
+		args.name = GetCurrentThreadName();
+		if (gJvm->AttachCurrentThread(&env, &args) != JNI_OK) {
+			return nullptr;
+		}
+	}
 	return env;
 }
 
 jclass findClass(const char* name) {
-	return static_cast<jclass>(getEnv()->CallObjectMethod(gClassLoader, gFindClassMethod, getEnv()->NewStringUTF(name)));
+	auto env = getEnv();
+	if (!env || !gClassLoader || !gFindClassMethod) {
+		return nullptr;
+	}
+	jstring jname = env->NewStringUTF(name);
+	jclass res = static_cast<jclass>(env->CallObjectMethod(gClassLoader, gFindClassMethod, jname));
+	env->DeleteLocalRef(jname);
+	return res;
 }
 
 void Android_AttachThreadToJNI() {
@@ -243,16 +265,27 @@ void Android_DetachThreadFromJNI() {
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *pjvm, void *reserved) {
 	INFO_LOG(Log::System, "JNI_OnLoad");
 	gJvm = pjvm;  // cache the JavaVM pointer
-	auto env = getEnv();
-	//replace with one of your classes in the line below
-	auto randomClass = env->FindClass("org/ppsspp/ppsspp/PpssppActivity");
+	JNIEnv *env = nullptr;
+	if (pjvm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+		return JNI_VERSION_1_6;
+	}
+
+	jclass randomClass = env->FindClass("org/ppsspp/ppsspp/PpssppActivity");
+	if (!randomClass) {
+		ERROR_LOG(Log::System, "JNI_OnLoad: Failed to find PpssppActivity");
+		return JNI_VERSION_1_6;
+	}
 	jclass classClass = env->GetObjectClass(randomClass);
-	auto classLoaderClass = env->FindClass("java/lang/ClassLoader");
-	auto getClassLoaderMethod = env->GetMethodID(classClass, "getClassLoader",
-												 "()Ljava/lang/ClassLoader;");
-	gClassLoader = env->NewGlobalRef(env->CallObjectMethod(randomClass, getClassLoaderMethod));
-	gFindClassMethod = env->GetMethodID(classLoaderClass, "findClass",
-										"(Ljava/lang/String;)Ljava/lang/Class;");
+	jclass classLoaderClass = env->FindClass("java/lang/ClassLoader");
+	jmethodID getClassLoaderMethod = env->GetMethodID(classClass, "getClassLoader", "()Ljava/lang/ClassLoader;");
+
+	jobject classLoader = env->CallObjectMethod(randomClass, getClassLoaderMethod);
+	if (!classLoader) {
+		ERROR_LOG(Log::System, "JNI_OnLoad: Failed to get class loader");
+		return JNI_VERSION_1_6;
+	}
+	gClassLoader = env->NewGlobalRef(classLoader);
+	gFindClassMethod = env->GetMethodID(classLoaderClass, "findClass", "(Ljava/lang/String;)Ljava/lang/Class;");
 
 	RegisterAttachDetach(&Android_AttachThreadToJNI, &Android_DetachThreadFromJNI);
 
@@ -366,6 +399,33 @@ float System_GetPropertyFloat(SystemProperty prop) {
 	}
 }
 
+bool IsEmulator() {
+	std::string hwDeviceName = systemName; // systemName is initialized in init()
+	// boardName is also initialized in init()
+	const char *emulatorStrings[] = {
+		"goldfish", "ranchu", "google_sdk", "Emulator", "Android SDK",
+		"nemu", "MuMu", "netease",
+		"vbox", "nox", "ttVM", "cancun", "vbox86p", "bignox",
+		"noxplayer", "ldplayer", "leidian", "xyaz",
+		"Bluestacks", "Droid4X", "Andy", "Windroye",
+		"mumu", "MUMU", "Nemu", "NEMU"
+	};
+	for (const char *s : emulatorStrings) {
+		if (hwDeviceName.find(s) != std::string::npos || boardName.find(s) != std::string::npos) {
+			return true;
+		}
+	}
+
+#ifdef __ANDROID__
+	char prop[PROP_VALUE_MAX];
+	if (__system_property_get("ro.mumu.version", prop) > 0) return true;
+	if (__system_property_get("ro.product.device", prop) > 0 && strstr(prop, "vbox86")) return true;
+	if (__system_property_get("ro.kernel.qemu", prop) > 0) return true;
+#endif
+
+	return false;
+}
+
 bool System_GetPropertyBool(SystemProperty prop) {
 	switch (prop) {
 	case SYSPROP_SUPPORTS_PERMISSIONS:
@@ -417,8 +477,15 @@ bool System_GetPropertyBool(SystemProperty prop) {
 	case SYSPROP_USE_APP_STORE:
 		return true;
 	case SYSPROP_CAN_JIT:
+		if (IsEmulator()) {
+			return false;
+		}
 		return true;
 	case SYSPROP_ANDROID_SCOPED_STORAGE:
+		// Emulators often have buggy scoped storage.
+		if (IsEmulator()) {
+			return false;
+		}
 		// We turn this on for Android 30+ (11) now that when we target Android 11+.
 		// Along with adding:
 		//   android:preserveLegacyExternalStorage="true"
@@ -457,6 +524,8 @@ bool System_GetPropertyBool(SystemProperty prop) {
 #endif
 	case SYSPROP_CAN_GET_FREE_SPACE_FAST:
 		return false;
+	case SYSPROP_IS_EMULATOR:
+		return IsEmulator();
 	default:
 		return false;
 	}
@@ -521,15 +590,19 @@ std::string GetJavaString(JNIEnv *env, jstring jstr) {
 }
 
 extern "C" void Java_org_ppsspp_ppsspp_PpssppActivity_registerCallbacks(JNIEnv *env, jobject obj) {
+	if (ppssppActivity) {
+		env->DeleteGlobalRef(ppssppActivity);
+	}
 	ppssppActivity = env->NewGlobalRef(obj);
 	TextDrawerAndroid::SetActivity(ppssppActivity);
-	postCommand = env->GetMethodID(env->GetObjectClass(obj), "postCommand", "(Ljava/lang/String;Ljava/lang/String;)V");
-	getDebugString = env->GetMethodID(env->GetObjectClass(obj), "getDebugString", "(Ljava/lang/String;)Ljava/lang/String;");
-	getNativeCrashHistory = env->GetMethodID(env->GetObjectClass(obj), "getNativeCrashHistory", "(I)Ljava/util/ArrayList;");
+	jclass cls = env->GetObjectClass(obj);
+	postCommand = env->GetMethodID(cls, "postCommand", "(Ljava/lang/String;Ljava/lang/String;)V");
+	getDebugString = env->GetMethodID(cls, "getDebugString", "(Ljava/lang/String;)Ljava/lang/String;");
+	getNativeCrashHistory = env->GetMethodID(cls, "getNativeCrashHistory", "(I)Ljava/util/ArrayList;");
 
-	_dbg_assert_(postCommand);
-	_dbg_assert_(getDebugString);
-	// It's OK if getNativeCrashHistory is missing.
+	if (!postCommand || !getDebugString) {
+		ERROR_LOG(Log::System, "registerCallbacks: Failed to find required methods");
+	}
 
 	Android_RegisterStorageCallbacks(env, obj);
 	Android_StorageSetActivity(ppssppActivity);
@@ -678,7 +751,9 @@ extern "C" void Java_org_ppsspp_ppsspp_NativeApp_init
 	deviceType = jdeviceType;
 
 	Path apkPath(GetJavaString(env, japkpath));
-	g_VFS.Register("", ZipFileReader::Create(apkPath, "assets/"));
+	if (!apkPath.empty()) {
+		g_VFS.Register("", ZipFileReader::Create(apkPath, "assets/"));
+	}
 
 	systemName = GetJavaString(env, jmodel);
 	langRegion = GetJavaString(env, jlangRegion);
@@ -1524,10 +1599,10 @@ extern "C" void JNICALL Java_org_ppsspp_ppsspp_NativeApp_setDisplayParameters(JN
 	}
 
 	// Hard parameters for the display. Actual DPI recalculation happens in BackbufferResize.
-	display_xres = xres;
-	display_yres = yres;
-	display_dpi = dpi;
-	g_display.display_hz = refreshRate;
+	display_xres = xres > 0 ? xres : 480;
+	display_yres = yres > 0 ? yres : 272;
+	display_dpi = dpi > 0 ? dpi : 160;
+	g_display.display_hz = refreshRate > 0 ? refreshRate : 60.0f;
 }
 
 extern "C" void JNICALL Java_org_ppsspp_ppsspp_NativeApp_computeDesiredBackbufferDimensions(JNIEnv *, jclass) {
@@ -1599,6 +1674,9 @@ extern "C" void JNICALL Java_org_ppsspp_ppsspp_NativeApp_pushCameraImageAndroid(
 // Call this under frameCommandLock.
 static void ProcessFrameCommands() {
 	JNIEnv *env = getEnv();
+	if (!env) {
+		return;
+	}
 	std::vector<FrameCommand> frameCommands;
 	{
 		std::lock_guard<std::mutex> guard(frameCommandLock);
@@ -1611,7 +1689,7 @@ static void ProcessFrameCommands() {
 	}
 
 	if (!frameCommands.empty()) {
-		INFO_LOG(Log::System, "Processing %zu frame commands", g_frameCommands.size());
+		INFO_LOG(Log::System, "Processing %zu frame commands", frameCommands.size());
 		for (const FrameCommand &frameCmd : frameCommands) {
 			DEBUG_LOG(Log::System, "frameCommand '%s' '%s'", frameCmd.command.c_str(), frameCmd.params.c_str());
 
